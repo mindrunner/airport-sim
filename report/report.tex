@@ -1,0 +1,328 @@
+\documentclass[a4paper, 12pt]{scrartcl} % Font size (can be 10pt, 11pt or 12pt) and paper size (remove a4paper for US letter paper)
+\input{include/header}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{abbrevs}
+\usepackage[toc]{glossaries} % nomain, if you define glossaries in a file, and you use \include{INP-00-glossary}
+\makeglossaries
+\linespread{1.05} % Change line spacing here, Palatino benefits from a slight increase by default
+\makeatletter
+\renewcommand{\maketitle}{ % Customize the title - do not edit title and author name here, see the TITLE block below
+  \begin{flushright} % Right align
+    {\LARGE\@title}\\ % Increase the font size of the title
+    \vspace{50pt} % Some vertical space between the title and author name
+    {\large\@author} % Author name
+    \\\@date % Date
+    \vspace{40pt} % Some vertical space between the author block and abstract
+  \end{flushright}
+}
+\title{\textbf{INX 365 Assignment 1}\\ % Title
+Airport Simulator} % Subtitle
+\author{\textsc{Lukas Elsner} % Author
+\\{\textit{Queensland University of Technology}}} % Institution
+\date{\today} % Date
+\begin{document}
+\maketitle % Print the title section
+\thispagestyle{empty}
+%\renewcommand{\abstractname}{Summary} % Uncomment to change the name of the abstract to something else
+\vspace{10em}
+\begin{abstract}
+The task was to develop an airport simulator using C and POSIX threads. The
+airport should have one runway, which is the critical resource, that cannot be
+used at the same time by multiple threads. The planes should land and take-off
+randomly based on given probabilities and being parked in the bay of the
+airport, which can hold op to ten planes. This document covers the
+implementation report, as well as occurred problems while implementing the
+simulator.
+\end{abstract}
+\newpage
+\tableofcontents
+\newpage
+%\hspace*{3,6mm}\textit{Keywords:} lorem , ipsum , dolor , sit amet , lectus % Keywords
+%\vspace{30pt} % Some vertical space between the abstract and first section
+%----------------------------------------------------------------------------------------
+%	ESSAY BODY
+%----------------------------------------------------------------------------------------
+
+\section{Statement of Completeness}
+
+All functionality was implemented as requested. Some minor additional changes
+were made. This report will cover the implementation details, as well as the
+additional changes.
+
+\subsection{Basic Functionality}
+
+The following basic functionality was implemented:
+\begin{itemize}
+    \item Display the banner
+    \item Generate planes with given probability
+    \item Randomly take-off planes with given probability
+    \item Landing simulation
+    \item Take-off simulation
+    \item Display airport state
+    \item Display "airport is empty" on empty airport
+    \item Display "airport is full" on full airport
+    \item Joining threads to gracefully shut down.
+  \end{itemize}
+
+In addition to that, the following extras were implemented:
+\begin{itemize}
+  \item Running the simulator with one or none probability argument will result
+    in default values of $50$ for the non-given probabilities.
+  \item Running the simulator with $-h$ parameter will print the usage help.
+\end{itemize}
+
+\subsection{Process Synchronisation and Coordination}
+
+To coordinate and synchronize multiple threads, two semaphores and one mutes
+were used. The landing and take-off threads are acting like a producer/consumer
+pattern for the parking \hyperref[sec:bay]{bays} in the
+\hyperref[sec:airport]{airport}. Therefore two Semaphores are used to make
+sure, the threads cannot enter the critical section when their data structure
+might not allow a proper action, such as landing a \hyperref[sec:plane]{plane}
+onto a full \hyperref[sec:airport]{airport} and parking a
+\hyperref[sec:plane]{plane} into a full \hyperref[sec:bay]{bay}.
+
+\subsection{Non-Functionality}
+
+Concurrency was implemented with help of the open source pthread library.
+Three additional threads are spawned from the main thread:
+\begin{itemize}
+  \item Landing thread
+  \item Take-off thread
+  \item Monitor thread
+\end{itemize}
+
+To obtain an adequate readability and make it easy to maintain the source code,
+many object-orientated paradigms were used for this program. Therefore, a lot
+of dynamic allocation of memory was used. Listing~\ref{ValgrindAnalysis} shows
+that a stress test with valgrind resulted in no possible memory leaks, even
+after a long runtime of the simulator.\\
+Also, the code is well commented and a doxygen reference manual was created. \\
+There are no known issues regarding to unexpected behavior, such as crashes.
+
+\lstset{language=,caption={Valgrind analysis},label=ValgrindAnalysis}
+\begin{lstlisting}
+==3165== HEAP SUMMARY:
+==3165==     in use at exit: 0 bytes in 0 blocks
+==3165==   total heap usage: 1,674,733 allocs, 1,674,733 frees, 17,307,187 bytes allocated
+==3165== 
+==3165== All heap blocks were freed -- no leaks are possible
+==3165== 
+==3165== For counts of detected and suppressed errors, rerun with: -v
+==3165== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)
+\end{lstlisting}
+
+\section{Data structures}
+
+\subsection{Description of Data Structures}
+
+The airport-sim application contains three main data structures:
+
+\subsubsection{airport}
+
+\label{sec:airport}
+Listing~\ref{AirportStruct} shows the \hyperref[sec:airport]{airport} data
+structure, which is the main data structure in airport-sim. Every
+\hyperref[sec:airport]{airport} has the following members.
+\begin{itemize}
+  \item{name} \\
+    The name of the \hyperref[sec:airport]{airport}
+  \item{bays} \\
+    The \hyperref[sec:bay]{bays}, in which the \hyperref[sec:plane]{planes} can
+    be parked.
+  \item{runway} \\
+    A virtual runway, to prevent multiple take-off/landing operations at the
+    same time.
+  \item{empty} \\
+    Semaphore to block take-off thread on empty \hyperref[sec:bay]{bay}.
+  \item{full} \\
+    Semaphore to block landing thread on full \hyperref[sec:bay]{bay}.
+\end{itemize}
+\lstset{language=C,caption={Airport structure},label=AirportStruct}
+\begin{lstlisting}
+struct airport {
+    char *name; /**< Name of the airport. */
+    bay **bays;/**< Bays in which planes can be parked. Has length NUM_BAYS. */
+    pthread_mutex_t runway;/**< A virtual runway, to prevent multiple
+                            take-off/landing operations at the same time. */
+    sem_t empty;/**< Semaphore to block on empty bay. */
+    sem_t full;/**< Semaphore to block on full bay. */
+};
+\end{lstlisting}
+Listing~\ref{AirportMethods} shows the public available methods for the
+\hyperref[sec:airport]{airport} structure. The method \texttt{airport\_init()}
+creates a new \hyperref[sec:airport]{airport} structure and
+\texttt{airport\_destroy(airport *)} frees its memory. The methods
+\texttt{airport\_land\_plane(airport *)} and
+\texttt{airport\_takeoff\_plane(airport *)} are used for initiating a landing
+or take-off procedure. Finally, \texttt{airport\_to\_string(airport *)}
+generates the human readable string which represents the current state of the
+\hyperref[sec:airport]{airport}.
+\lstset{language=C,caption={Airport methods},label=AirportMethods}
+\begin{lstlisting}
+airport *airport_init(char *);
+void airport_land_plane(airport *);
+void airport_takeoff_plane(airport *);
+char *airport_to_string(airport *);
+void airport_destroy(airport *);
+\end{lstlisting}
+
+\subsubsection{bay}
+
+\label{sec:bay}
+Listing~\ref{BayStruct} shows the \hyperref[sec:bay]{bay} data structure, which
+is used to represent a slot for a landed \hyperref[sec:plane]{plane}. Every
+\hyperref[sec:bay]{bay} has the following members.
+\begin{itemize}
+  \item {plane} \\
+    The \hyperref[sec:plane]{plane}, which is parked in this landing
+    \hyperref[sec:bay]{bay}, or NULL if there is none.
+  \item{parking\_time} \\
+    Time, the \hyperref[sec:plane]{plane} was parked or unparked.
+\end{itemize}
+\lstset{language=C,caption={Bay structure},label=BayStruct}
+\begin{lstlisting}
+struct bay {
+    plane *plane; /**< Plane parked in bay, null if there is none. */
+    time_t parking_time; /**< Time, the plane was parked or unparked. */
+};
+\end{lstlisting}
+Listing~\ref{BayMethods} shows the public available methods for the
+\hyperref[sec:bay]{bay} structure. The method \texttt{bay\_init()} creates a
+new \hyperref[sec:bay]{bay} structure and \texttt{bay\_destroy(bay *)} frees
+its memory. The methods \texttt{bay\_park\_plane(bay *, plane *)} and
+\texttt{bay\_unpark\_plane(bay *)} are used to park and unpark
+\hyperref[sec:plane]{planes}. Finally, \texttt{bay\_get\_plane(bay *)} is being
+used to get the currently parked \hyperref[sec:plane]{plane} of the
+\hyperref[sec:bay]{bay}.
+\lstset{language=C,caption={Bay methods},label=BayMethods}
+\begin{lstlisting}
+bay *bay_init();
+time_t bay_get_occupation_time(bay *b);
+void bay_park_plane(bay *b, plane *p);
+plane *bay_unpark_plane(bay *b);
+plane *bay_get_plane(bay *b);
+void bay_destroy(bay *);
+\end{lstlisting}
+
+\subsubsection{plane}
+
+\label{sec:plane}
+Listing~\ref{PlaneStruct} shows the \hyperref[sec:plane]{plane} data structure.
+Every \hyperref[sec:plane]{plane} has the following members.
+\begin{itemize}
+  \item{name} \\
+    The name of the \hyperref[sec:plane]{plane}.
+\end{itemize}
+\lstset{language=C,caption={Plane structure},label=PlaneStruct}
+\begin{lstlisting}
+struct plane {
+  char *name; /**< Name of the plane. */
+};
+\end{lstlisting}
+Listing~\ref{PlaneMethods} shows the public available methods for the \hyperref[sec:plane]{plane}
+structure. The method \texttt{plane\_init()} creates a new \hyperref[sec:plane]{plane} structure and
+\texttt{plane\_destroy(plane *)} frees its memory. To get the name of a \hyperref[sec:plane]{plane},
+\texttt{plane\_get\_name(plane *)} can be used.
+\lstset{language=C,caption={Plane methods},label=PlaneMethods}
+\begin{lstlisting}
+plane *plane_init();
+char *plane_get_name(plane *);
+void plane_destroy(plane *);
+\end{lstlisting}
+
+\subsubsection{Time handling} In some parts of the application, it is necessary
+to block the current thread for a particular amount of milliseconds. Therefore,
+the method \texttt{nanosleep(struct timespec *, struct timespec *)} was used.
+The \texttt{tools.c} file includes a method \texttt{msleep(long long)}, which
+can be used for suspending the current thread for a particular amount of milli
+seconds. The \texttt{msleep(long long)} method creates a \texttt{timespec}
+structure with the required seconds ($m/1000$) and nanoseconds
+($1000000*(m\%1000)$) value. This structure is passed to the
+\texttt{nanosleep(struct timespec *, struct timespec *)}.
+
+\subsection{Interaction between Threads and Data Structures}
+
+To make sure, no race conditions are occurring between the three threads in
+airport-sim, some thread synchronization patterns were used. The main critical
+sections are in the methods \texttt{airport\_land\_plane(airport *)} and
+\texttt{airport\_takeoff\_plane(airport *)}. Both are write accessing the
+\hyperref[sec:bay]{bays} data structure. Therefore, a mutex was used to mutual
+exclude the access to it.  Since this \hyperref[sec:airport]{airport} is used
+with a producer/consumer pattern, a semaphore are used to let the landing
+thread block when the \hyperref[sec:airport]{airport} is full and another
+semaphore lets the take-off thread block when the
+\hyperref[sec:airport]{airport} is empty. \\
+
+One critical problem which happened in the special situation when the
+application is going to be shut down while the \hyperref[sec:airport]{airport}
+is full or empty was, that one of the threads was waiting forever for the
+semaphore to change its state. Therefore the application hung on
+\texttt{sem\_wait(sem\_t *)} and could not perform a clean exit. To resolve
+this issue, \texttt{sem\_timedwait(sem\_t *, timespec *)} was used with a
+timeout value of 5 seconds. Thus, the thread will do another loop when it
+cannot acquire the semaphore after five seconds to check if the application
+should exit. \\
+
+Another race condition was found while stress-testing the application. There
+was a very unlikely situation, where the take-off thread freed the memory of a
+plan while the human readable output of the \hyperref[sec:airport]{airport} was
+created in \texttt{airport\_to\_string(airport *)}. This could lead to a
+segmentation fault and lets the application crash. To resolve this problem, the
+string generation is done in a critical section now. One side effect of this
+fix is, that the user might see a delay after requesting the current
+\hyperref[sec:airport]{airport} state and seeing the result.
+
+\section{Task 2}
+
+One possible solution to support multiple runways (which obviously implies a
+2-runway solution) within one \hyperref[sec:airport]{airport} would be to
+introduce one additional semaphore which is representing the multiple runways.
+The value of the semaphore therefore would be the amount of currently used
+runways. \texttt{sem\_wait(sem\_t *)} would be called right before the
+\texttt{msleep(2000)} call, which simulates landing or take-off.
+\texttt{sem\_post(sem\_t *)} directly afterwards. The currently used mutex
+should be renamed and used only for mutual excluding access to the parking
+\hyperref[sec:bay]{bay} structure. \\
+
+The folder \texttt{src-multi} includes a prototype for this idea. This is just
+a proof of concept which might have some flaws. No additional comments were
+made in the source code. \\
+
+The following changes have been implemented:
+
+\begin{enum}
+\item Renamed mutex \texttt{runway} to \texttt{baylock}, since this is a more
+  appropriate name.
+\item Introduced Semaphore \texttt{runways} to simulate multiple runways.
+\item Introduced mutex \texttt{runwaylock} to mutual exclude access to runway
+  semaphore. This is necessary to obtain the current value of the semaphore.
+  (This is only needed if we want to know which runway currently is used)
+\item The methods \texttt{airport\_takeoff\_plane(airport *)} and
+  \texttt{airport\_land\_plane(airport *)} were modified to more complex
+  locking and synchronizing.
+\item A new member for holding the runway a \hyperref[sec:plane]{plane} landed
+  on was introduced in the \texttt{\hyperref[sec:bay]{bay}} data structure.
+\item The method \texttt{airport\_to\_string(airport *)} was adapted to show
+  the runway on which the parked \hyperref[sec:plane]{plane} was landed.
+\item The main function is now able to create multiple take-off and landing
+  threads based on NUM\_TAKEOFF\_THREADS and NUM\_LANDING\_THREADS.
+\end{enum}
+
+With this approach, it is possible to scale the number of threads, as well as
+the size of the \hyperref[sec:airport]{airport} regarding to parking slots and
+runways.
+
+%----------------------------------------------------------------------------------------
+%	BIBLIOGRAPHY
+%----------------------------------------------------------------------------------------
+%\bibliographystyle{IEEEtran}
+%\bibliography{bibtex}
+%----------------------------------------------------------------------------------------
+%\printindex
+%\printglossaries
+%\listoffigures
+%\listoftables
+\end{document}

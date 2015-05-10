@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 2.8.4)
+project(airport-sim)
+set(CMAKE_C_FLAGS "-g -Wall -std=c99 -D _POSIX_C_SOURCE=200809L")
+set(SOURCE_FILES airport.c airport-sim.c bay.c plane.c tools.c)
+FIND_PACKAGE ( Threads REQUIRED )
+add_executable(airport-sim ${SOURCE_FILES})
+TARGET_LINK_LIBRARIES ( airport-sim ${CMAKE_THREAD_LIBS_INIT} )
